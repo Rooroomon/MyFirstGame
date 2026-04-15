@@ -4,7 +4,7 @@ import pygame
 
 pygame.init()
 
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 1280, 720
 FPS = 60
 screen=pygame.display.set_mode((WIDTH,HEIGHT))
 
@@ -24,7 +24,6 @@ player_frames = []
 anim_index = 0
 anim_timer = 0
 anim_speed = 8  # 프레임 속도 (작을수록 빠름)
-player_dir = "middle"  # left, middle, right
 
 for i in range(28):
     row, col = divmod(i, COLS)
@@ -34,6 +33,13 @@ for i in range(28):
 PlayerFrames_Middle = [player_frames[i] for i in [1, 8, 15, 22]]
 PlayerFrames_Left = [player_frames[i] for i in [0, 7, 14, 21]]
 PlayerFrames_Right = [player_frames[i] for i in [2, 9, 16, 23]]
+
+# ★ 폭발 프레임
+ExplosionFrames = [
+    [player_frames[i] for i in [10,11,12,13]],
+    [player_frames[i] for i in [17,18,19,20]],
+    [player_frames[i] for i in [24,25,26,27]],
+]
 
 WHITE=(255,255,255)
 GRAY=(20,20,40)
@@ -51,8 +57,8 @@ font_big=pygame.font.SysFont("malgungothic",64)
 MENU,PLAYING,GAME_OVER=0,1,2
 PLAYER_W, PLAYER_H = 40,40
 
-def draw_player(surf, rect, last_hit):
-    global anim_index, anim_timer, player_dir
+def draw_player(surf, rect, last_hit, player_dir):
+    global anim_index, anim_timer
 
     now = pygame.time.get_ticks()
 
@@ -90,7 +96,7 @@ def create_bullet(pos, angle, speed=6, owner="enemy"):
 
 class Enemy:
     def __init__(self,x,y,level):
-        self.rect=pygame.Rect(x,y,40,40)
+        self.rect=pygame.Rect(x,y,50,50)
         self.level=level
         self.hp=3+level
         self.spawn_time = pygame.time.get_ticks()  # ★ 추가
@@ -100,6 +106,7 @@ class EnemyA(Enemy):
         super().__init__(x,y,level)
         self.cool=[2500,2000,1500][level]
         self.last=0
+        self.state = "idle"
     def update(self,player):
         now=pygame.time.get_ticks()
         bullets=[]
@@ -117,9 +124,22 @@ class EnemyA(Enemy):
             if self.level>=1:
                 bullets.append(create_bullet(self.rect.center,angle+0.25))
                 bullets.append(create_bullet(self.rect.center,angle-0.25))
+        
+        if pygame.time.get_ticks() - self.spawn_time > 30000:
+            self.state = "explosion"
+            
+        if(self.state == "explosion"):
+            print("넌 주것다")
         return bullets
-    def draw(self,screen):
-        pygame.draw.circle(screen,RED,self.rect.center,18)
+    def draw(self,screen,player):
+        dx=player.centerx-self.rect.centerx
+        dy=player.centery-self.rect.centery
+        img = pygame.transform.scale(player_frames[3], (self.rect.width, self.rect.height))
+        #if pygame.time.get_ticks() - self.spawn_time > 25000:
+        #    img = pygame.transform.threshold(img, img, (255, 0, 0), (255, 255, 255), (255, 0, 0), 1)
+        rotated = pygame.transform.rotate(img, -math.atan2(dy,dx) * (180 / math.pi) + 90)
+        rotated_rect = rotated.get_rect(center=self.rect.center)
+        screen.blit(rotated, rotated_rect)
 
 class EnemyB(Enemy):
     def __init__(self,x,y,level):
@@ -127,6 +147,7 @@ class EnemyB(Enemy):
         self.cool=[3500,3000,2500][level]
         self.state="idle"
         self.last=0
+        self.dir = 1
     def update(self,player):
         now=pygame.time.get_ticks()
         bullets=[]
@@ -134,10 +155,15 @@ class EnemyB(Enemy):
         if now - self.spawn_time < 1000:
             return []
 
-        if self.state=="idle" and now-self.last>self.cool:
-            self.state="move"
-            self.start=now
-            self.target=(player.centerx, random.randint(50, HEIGHT//2))
+        if self.state=="idle":
+            if now-self.last>self.cool:
+                self.state="move"
+                self.start=now
+                self.target=(player.centerx, random.randint(50, HEIGHT//2))
+            else:
+                self.rect.centerx += self.dir * 3
+                if self.rect.centerx > WIDTH-50 or self.rect.centerx < 50:
+                    self.dir *= -1
         elif self.state=="move":
             t=(now-self.start)/500
             if t>=1:
@@ -151,13 +177,11 @@ class EnemyB(Enemy):
             bullets.append(create_bullet(self.rect.center, math.pi/2, 8))
             self.state="idle"
             self.last=now
+            self.dir = random.choice([-1, 1])
         return bullets
-    def draw(self,screen):
-        pygame.draw.polygon(screen,ORANGE,[
-            (self.rect.left,self.rect.top),
-            (self.rect.right,self.rect.top),
-            (self.rect.centerx,self.rect.bottom),
-        ])
+    def draw(self,screen,player):
+        img = pygame.transform.scale(player_frames[4], (self.rect.width, self.rect.height))
+        screen.blit(img, self.rect)
 
 class EnemyC(Enemy):
     def __init__(self,x,y,level):
@@ -205,8 +229,9 @@ class EnemyC(Enemy):
                 self.state="idle"
                 self.last=now
         return bullets
-    def draw(self,screen):
-        pygame.draw.circle(screen,GREEN,self.rect.center,24)
+    def draw(self,screen,player):
+        img = pygame.transform.scale(player_frames[5], (self.rect.width, self.rect.height))
+        screen.blit(img, self.rect)
 
 def main():
     state=MENU
@@ -232,7 +257,8 @@ def main():
 
         if state==MENU:
             screen.fill((10,10,30))
-            screen.blit(font_big.render("PRESS ANY KEY",True,WHITE),(200,250))
+            text = font_big.render("PRESS ANY KEY",True,WHITE)
+            screen.blit(text, ((WIDTH - text.get_width())//2,(HEIGHT - text.get_height())//2))
             pygame.display.flip()
             continue
 
@@ -245,6 +271,7 @@ def main():
             level_display_time=pygame.time.get_ticks()
             level_prev=level
         
+        player_dir = "middle"
         keys=pygame.key.get_pressed()
         if keys[pygame.K_a] or keys[pygame.K_LEFT]:
             player.x-=6
@@ -267,8 +294,10 @@ def main():
 
         spawn_timer+=1
 
-        # ★ 적 없으면 3초, 있으면 5초
-        spawn_cool = FPS*3 if len(enemies)==0 else FPS*5
+        # ★ 적 없으면 2초, 있으면 4초
+        spawn_cool = FPS*2
+        if len(enemies) >= 2:
+            spawn_cool = FPS*4
 
         if len(enemies)<5 and spawn_timer>spawn_cool:
             spawn_timer=0
@@ -303,20 +332,19 @@ def main():
 
         removed = any(e.hp<=0 for e in enemies)
         enemies=[e for e in enemies if e.hp>0]
-        if removed:
-            spawn_timer=0
 
         if hp<=0: state=GAME_OVER
 
         if state==GAME_OVER:
             screen.fill((0,0,0))
-            screen.blit(font_big.render("GAME OVER",True,RED),(200,250))
+            overtext = font_big.render("GAME OVER",True,RED)
+            screen.blit(overtext,((WIDTH - overtext.get_width())//2, (HEIGHT - overtext.get_height())//2))
             pygame.display.flip()
             continue
 
         screen.fill(GRAY)
-        draw_player(screen,player,last_hit)
-        for en in enemies: en.draw(screen)
+        draw_player(screen,player,last_hit,player_dir)
+        for en in enemies: en.draw(screen,player)
         for b in bullets:
             color=GREEN if b["owner"]=="player" else YELLOW
             pygame.draw.circle(screen,color,(int(b["x"]),int(b["y"])),4)
@@ -330,3 +358,4 @@ def main():
         pygame.display.flip()
 
 main()
+
